@@ -370,9 +370,26 @@ function drawPlanet(g, lv, x, y, r, o = {}){
   }
 
   if (p.sun){
-    const glow = g.createRadialGradient(0,0,r*0.7,0,0,r*1.4);
-    glow.addColorStop(0,'rgba(255,216,77,.5)'); glow.addColorStop(1,'rgba(255,150,60,0)');
-    g.fillStyle = glow; g.beginPath(); g.arc(0,0,r*1.4,0,PI2); g.fill();
+    const t = (o.now ?? performance.now()) / 1000;
+    // 은은하게 숨쉬는 코로나 빛
+    const pulse = 1 + Math.sin(t*2.2)*0.05;
+    const glow = g.createRadialGradient(0,0,r*0.75,0,0,r*1.6*pulse);
+    glow.addColorStop(0,'rgba(255,236,140,.65)'); glow.addColorStop(0.5,'rgba(255,180,80,.25)'); glow.addColorStop(1,'rgba(255,120,60,0)');
+    g.fillStyle = glow; g.beginPath(); g.arc(0,0,r*1.6*pulse,0,PI2); g.fill();
+    // 천천히 도는 햇살 (긴 것·짧은 것 번갈아, 살랑살랑 길이가 변함)
+    g.save(); g.rotate(t*0.3); g.lineJoin = 'round';
+    for (let i = 0; i < 14; i++){
+      const long = i % 2 === 0;
+      const L = r*(long ? 1.36 : 1.2) + Math.sin(t*3 + i*1.7)*r*0.05;
+      const w = r*(long ? 0.2 : 0.15);
+      g.save(); g.rotate(i/14*PI2);
+      g.fillStyle = long ? '#ffc94a' : '#ff9f45';
+      g.strokeStyle = g.fillStyle; g.lineWidth = r*0.07;
+      g.beginPath(); g.moveTo(-w, -r*0.9); g.quadraticCurveTo(-w*0.35, -L*0.93, 0, -L); g.quadraticCurveTo(w*0.35, -L*0.93, w, -r*0.9); g.closePath();
+      g.fill(); g.stroke();
+      g.restore();
+    }
+    g.restore();
   }
   if (p.ring){
     g.save(); g.rotate(-0.3);
@@ -383,9 +400,15 @@ function drawPlanet(g, lv, x, y, r, o = {}){
 
   // 입체 바탕 (빛은 항상 왼쪽 위)
   const base = g.createRadialGradient(-r*0.35,-r*0.4,r*0.05,0,0,r);
-  base.addColorStop(0, mix(p.c,'#ffffff',0.5));
-  base.addColorStop(0.55, p.c);
-  base.addColorStop(1, mix(p.c,'#281a55',0.38));
+  if (p.sun){   // 태양은 안쪽이 하얗게 빛나고 가장자리는 주황
+    base.addColorStop(0, '#fffbe0');
+    base.addColorStop(0.45, '#ffe066');
+    base.addColorStop(1, '#ff9a3c');
+  } else {
+    base.addColorStop(0, mix(p.c,'#ffffff',0.5));
+    base.addColorStop(0.55, p.c);
+    base.addColorStop(1, mix(p.c,'#281a55',0.38));
+  }
   g.beginPath(); g.arc(0,0,r,0,PI2);
   g.fillStyle = base; g.fill();
 
@@ -405,8 +428,13 @@ function drawPlanet(g, lv, x, y, r, o = {}){
     [[-.55,-.4,.3,.22],[.55,.35,.28,.35],[.15,-.75,.3,.14],[-.5,.62,.25,.16]].forEach(([cx,cy,rx,ry]) => { g.beginPath(); g.ellipse(cx*r,cy*r,rx*r,ry*r,.4,0,PI2); g.fill(); });
   }
   if (p.sun){
-    g.fillStyle = '#ffb648';
-    [[-.55,-.35,.14],[.55,.4,.12],[.15,-.7,.09],[-.4,.6,.1]].forEach(([cx,cy,cr]) => { g.beginPath(); g.arc(cx*r,cy*r,cr*r,0,PI2); g.fill(); });
+    // 이글이글 소용돌이 무늬 + 작은 흑점
+    g.strokeStyle = '#ff9a3c'; g.lineCap = 'round'; g.lineWidth = r*0.06;
+    [[-.45,-.35,.32,0.2],[.5,.3,.28,2.4],[.05,.7,.26,4.1],[-.6,.45,.18,1.2],[.55,-.5,.2,3.3]].forEach(([cx,cy,cr,a0]) => {
+      g.beginPath(); g.arc(cx*r, cy*r, cr*r, a0, a0 + 2.6); g.stroke();
+    });
+    g.fillStyle = '#f07a2e';
+    [[.3,-.62,.06],[-.25,.78,.05],[.78,.05,.045]].forEach(([cx,cy,cr]) => { g.beginPath(); g.arc(cx*r,cy*r,cr*r,0,PI2); g.fill(); });
   }
   g.restore();
 
@@ -415,7 +443,7 @@ function drawPlanet(g, lv, x, y, r, o = {}){
   g.beginPath(); g.ellipse(-r*0.4,-r*0.45,r*0.2,r*0.11,-0.7,0,PI2); g.fill();
   g.beginPath(); g.arc(-r*0.12,-r*0.62,r*0.045,0,PI2); g.fill();
   g.lineWidth = Math.max(1.5, r*0.055);
-  g.strokeStyle = mix(p.c,'#281a55',0.55);
+  g.strokeStyle = p.sun ? '#e8742a' : mix(p.c,'#281a55',0.55);
   g.beginPath(); g.arc(0,0,r,0,PI2); g.stroke();
 
   if (p.ring){
