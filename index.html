@@ -134,6 +134,15 @@ button.go.danger:active{box-shadow:0 1px 0 #c9618f}
 .rankList li.me{background:rgba(255,156,200,.35);box-shadow:0 0 0 2px var(--pink),0 0 14px rgba(255,156,200,.8);animation:hop .5s ease-in-out 3}
 .rankList li.empty{justify-content:center;opacity:.75;background:none;padding:14px}
 @keyframes hop{50%{transform:translateY(-4px) scale(1.03)}}
+.reviveIcon{position:relative;width:110px;height:110px}
+.reviveIcon .heart{position:absolute;right:-6px;top:-4px;font-size:38px;color:#ff6b9a;text-shadow:0 0 12px rgba(255,107,154,.8);animation:pulse .8s ease-in-out infinite}
+.reviveTitle{font-size:38px!important;color:var(--pop)}
+.reviveGo{font-size:25px!important;padding:12px 22px!important;display:flex;align-items:center;gap:8px;white-space:nowrap}
+.reviveGo .ring{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:50%;font-size:18px;color:var(--space);
+  background:conic-gradient(var(--space) calc(var(--p,1)*360deg),rgba(22,29,69,.25) 0);position:relative}
+.reviveGo .ring::after{content:attr(data-n);position:absolute;inset:4px;border-radius:50%;background:var(--pop);display:grid;place-items:center;font-size:17px}
+.reviveGo .ring{font-size:0}
+#reviveNo{font-size:16px;padding:6px 20px;min-width:0}
 .intro .hello{font-size:18px;display:flex;align-items:center;gap:4px;margin-bottom:-6px}
 .intro .hello b{font-weight:400;color:var(--pop)}
 #nickName{width:7em;max-width:60vw}
@@ -172,6 +181,15 @@ button.textbtn{background:none;border:none;color:var(--text);opacity:.6;font-fam
     <ol class="rankList" id="overRanks" hidden></ol>
     <button class="go" id="restart" type="button">다시 하기</button>
     <button class="ghost" id="overExit" type="button">처음 화면으로</button>
+  </div>
+</div>
+
+<div class="over" id="revive" hidden>
+  <div class="card">
+    <div class="reviveIcon"><canvas id="reviveCv"></canvas><span class="heart">♥</span></div>
+    <h2 class="reviveTitle outline">한 번 더 기회!</h2>
+    <button class="go reviveGo" id="reviveGo" type="button"><span class="ring" id="reviveRing">5</span>이어서 하기 ▶</button>
+    <button class="ghost" id="reviveNo" type="button">그만하기</button>
   </div>
 </div>
 
@@ -725,6 +743,7 @@ function start(){
   Events.on(engine, 'collisionActive', onHit);
   score = 0; current = randLv(); nextLv = randLv();
   aimX = W/2; aimAng = 0; barrelAng = 0; cannonKick = -1e9; lastDrop = 0; overSince = 0; gameOver = false;
+  revived = false; stopRevive();
   effects = []; rings = []; labels = []; mergeQueue = []; banner = null; shake = 0;
   missionIdx = 0; biggest = 0; merges = 0; dropCount = 0;
   flashes = []; screenFlash = 0;
@@ -1040,6 +1059,50 @@ function checkOver(now){
   if (!overSince) overSince = now;
   return now - overSince > OVER_TIME;
 }
+// ===== 한 번 더 기회 (판마다 한 번) =====
+var revived = false, reviving = false, reviveTimer = 0;
+const $revive = document.getElementById('revive');
+function stopRevive(){ reviving = false; clearInterval(reviveTimer); $revive.hidden = true; }
+function offerRevive(){
+  reviving = true; paused = true; overSince = 0;
+  sfx.over();
+  const g = setupMini(document.getElementById('reviveCv'), 110);
+  drawPlanet(g, Math.min(biggest, 6), 55, 58, 40, { mood: 'sad' });
+  const ring = document.getElementById('reviveRing'), T = 5;
+  let left = T*10;
+  const tick = () => { ring.dataset.n = Math.ceil(left/10); ring.style.setProperty('--p', left/(T*10)); };
+  tick(); clearInterval(reviveTimer);
+  reviveTimer = setInterval(() => { if (document.hidden || $revive.hidden) return; left--; tick(); if (left <= 0) reviveStop(); }, 100);
+  setTimeout(() => { if (reviving){ $revive.hidden = false; try { document.getElementById('reviveGo').focus({ preventScroll: true }); } catch(e){} } }, 400);
+}
+function reviveGo(){
+  if (!reviving) return;
+  stopRevive();
+  revived = true;
+  // 위쪽 행성들을 펑! 치워서 자리 만들기 (최소 3개)
+  const ps = Composite.allBodies(engine.world).filter(b => b.lv !== undefined)
+    .sort((a, b) => (a.position.y - PLANETS[a.lv].r) - (b.position.y - PLANETS[b.lv].r));
+  const gone = ps.filter((b, i) => i < 3 || b.position.y - PLANETS[b.lv].r < DANGER_Y + 120);
+  gone.forEach((b, i) => {
+    const P = PLANETS[b.lv];
+    burst(b.position.x, b.position.y, P.c || '#ffd84d', P.r);
+    tone(880 + i*120, 0.18, 'triangle', 0.12, 1760, i*0.05);
+  });
+  Composite.remove(engine.world, gone);
+  sfx.mission();
+  screenFlash = 1; shake = 6;
+  overSince = 0; gameOver = false; paused = false; lastDrop = 0;   // 음악은 bgmSync가 멈춤 해제와 함께 다시 켬
+}
+function reviveStop(){
+  if (!reviving) return;
+  stopRevive();
+  paused = false;
+  endGame();
+}
+document.getElementById('reviveGo').addEventListener('click', () => { audioUnlock(); reviveGo(); });
+document.getElementById('reviveNo').addEventListener('click', reviveStop);
+['pointerdown','pointerup','touchstart'].forEach(t => $revive.addEventListener(t, e => e.stopPropagation()));
+
 function endGame(){
   gameOver = true;
   sfx.over();
@@ -1328,7 +1391,7 @@ function loop(now){
       if (sp > MAXV) Body.setVelocity(b, { x: b.velocity.x * MAXV/sp, y: b.velocity.y * MAXV/sp });
     }
     doMerges(now);
-    if (checkOver(now)) endGame();
+    if (checkOver(now)){ if (revived) endGame(); else offerRevive(); }
   }
   for (const p of effects){ p.x += p.vx; p.y += p.vy; p.vy += 0.06; p.vx *= 0.98; p.life -= 0.025; }
   effects = effects.filter(p => p.life > 0);
@@ -1743,7 +1806,7 @@ const $confirm = document.getElementById('confirm');
 let confirmAction = null;
 
 function openMenu(){
-  if (gameOver || !introDone) return;
+  if (gameOver || !introDone || reviving) return;
   paused = true;
   document.getElementById('menuScore').textContent = score;
   $menu.hidden = false;
