@@ -134,6 +134,9 @@ button.go.danger:active{box-shadow:0 1px 0 #c9618f}
 .rankList li.me{background:rgba(255,156,200,.35);box-shadow:0 0 0 2px var(--pink),0 0 14px rgba(255,156,200,.8);animation:hop .5s ease-in-out 3}
 .rankList li.empty{justify-content:center;opacity:.75;background:none;padding:14px}
 @keyframes hop{50%{transform:translateY(-4px) scale(1.03)}}
+.intro .hello{font-size:18px;display:flex;align-items:center;gap:4px;margin-bottom:-6px}
+.intro .hello b{font-weight:400;color:var(--pop)}
+#nickName{width:7em;max-width:60vw}
 .intro .rankBtn{font-size:17px;padding:6px 20px;min-width:0;margin-top:-4px}
 .ranks{z-index:40}
 button.textbtn{background:none;border:none;color:var(--text);opacity:.6;font-family:var(--font-display);font-size:14px;text-decoration:underline;cursor:pointer;padding:4px}
@@ -165,10 +168,6 @@ button.textbtn{background:none;border:none;color:var(--text);opacity:.6;font-fam
     <div class="stats" id="finalStats"></div>
     <div class="rankNew" id="rankNew" hidden>
       <div class="rankPlace outline" id="rankPlace">1등!</div>
-      <div class="nameRow">
-        <input id="rankName" type="text" maxlength="6" placeholder="이름" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" aria-label="이름">
-        <button class="go" id="rankSave" type="button">등록</button>
-      </div>
     </div>
     <ol class="rankList" id="overRanks" hidden></ol>
     <button class="go" id="restart" type="button">다시 하기</button>
@@ -205,9 +204,20 @@ button.textbtn{background:none;border:none;color:var(--text);opacity:.6;font-fam
     <div class="bar"><i id="introBar"></i></div>
     <span id="introMsg">우주로 출발하는 중...</span>
   </div>
+  <div class="hello" id="introHello" hidden>🪐 <b id="helloName"></b>님 안녕! <button class="textbtn" id="nickChange" type="button">바꾸기</button></div>
   <button class="go" id="introGo" type="button" hidden>시작하기</button>
   <button class="ghost rankBtn" id="introRank" type="button" hidden>🏆 순위</button>
   <p class="tip">소리를 켜면 더 재밌어요</p>
+</div>
+
+<div class="over ranks" id="nickBox" hidden>
+  <div class="card">
+    <h2>닉네임을 정해 주세요</h2>
+    <div class="nameRow">
+      <input id="nickName" type="text" maxlength="6" placeholder="닉네임" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" aria-label="닉네임">
+    </div>
+    <button class="go" id="nickOk" type="button">좋아요!</button>
+  </div>
 </div>
 
 <div class="over ranks" id="rankBox" hidden>
@@ -1044,8 +1054,7 @@ function endGame(){
 
 // ===== 순위표 (이 기기에만 저장) =====
 const RANK_KEY = 'planetMergeRanks', NAME_KEY = 'planetMergeName', MEDALS = ['🥇','🥈','🥉'];
-let rankPending = null;
-const $rankNew = document.getElementById('rankNew'), $rankName = document.getElementById('rankName');
+const $rankNew = document.getElementById('rankNew');
 const $overRanks = document.getElementById('overRanks');
 function loadRanks(){
   try {
@@ -1081,43 +1090,55 @@ function renderRanks(ol, hiDate){
   });
   if (hiLi) setTimeout(() => { try { hiLi.scrollIntoView({ block: 'nearest' }); } catch(e){} }, 60);
 }
+let nickMem = '';   // 저장이 막힌 브라우저에서도 이번 접속 동안은 기억
+function getNick(){ try { return localStorage.getItem(NAME_KEY) || nickMem; } catch(e){ return nickMem; } }
+function setNick(n){ nickMem = n; try { localStorage.setItem(NAME_KEY, n); } catch(e){} }
+// 게임오버: 닉네임으로 자동 등록
 function rankAtGameOver(){
   const place = rankPlaceFor(score);
-  if (place){
-    rankPending = { score, planet: biggest };
-    document.getElementById('rankPlace').textContent = place + '등! ' + (place === 1 ? '🏆' : MEDALS[place - 1] || '🎉');
-    let last = ''; try { last = localStorage.getItem(NAME_KEY) || ''; } catch(e){}
-    $rankName.value = last;
-    $rankNew.hidden = false; $overRanks.hidden = true;
-  } else {
-    rankPending = null;
-    $rankNew.hidden = true; $overRanks.hidden = false;
-    renderRanks($overRanks);
-  }
-}
-function rankRegister(){
-  if (!rankPending) return;
-  const name = $rankName.value.trim().slice(0, 6) || '익명';
-  const entry = { name, score: rankPending.score, planet: rankPending.planet, date: Date.now() };
+  $rankNew.hidden = !place; $overRanks.hidden = false;
+  if (!place){ renderRanks($overRanks); return; }
+  document.getElementById('rankPlace').textContent = place + '등! ' + (place === 1 ? '🏆' : MEDALS[place - 1] || '🎉');
+  const entry = { name: getNick() || '익명', score, planet: biggest, date: Date.now() };
   const a = loadRanks(); a.push(entry);
   a.sort((x, y) => y.score - x.score || x.date - y.date);
   saveRanks(a.slice(0, 10));
-  try { localStorage.setItem(NAME_KEY, name); } catch(e){}
-  rankPending = null;
-  $rankName.blur();
-  sfx.mission();
-  $rankNew.hidden = true; $overRanks.hidden = false;
   renderRanks($overRanks, entry.date);
+  setTimeout(() => sfx.mission(), 650);   // 게임오버 소리 뒤에 축하음
 }
-document.getElementById('rankSave').addEventListener('click', rankRegister);
-$rankName.addEventListener('keydown', e => {
-  e.stopPropagation();   // 글자 입력이 게임 단축키(Esc 등)로 새지 않게
-  if (e.key === 'Enter' || e.keyCode === 13){ e.preventDefault(); rankRegister(); }
-});
-$rankName.addEventListener('focus', () => {
-  setTimeout(() => { try { $rankName.scrollIntoView({ block: 'center' }); } catch(e){} }, 300);   // 폰 키보드가 올라와도 보이게
-});
 ['pointerdown','pointerup','touchstart'].forEach(t => $over.addEventListener(t, e => e.stopPropagation()));
+
+// 닉네임 정하기 창
+const $nickBox = document.getElementById('nickBox'), $nickName = document.getElementById('nickName');
+let nickThen = null;
+function showHello(){
+  const n = getNick();
+  document.getElementById('helloName').textContent = n;
+  document.getElementById('introHello').hidden = !n || document.getElementById('introGo').hidden;
+}
+function openNick(then){
+  nickThen = then || null;
+  $nickName.value = getNick();
+  $nickBox.hidden = false;
+  try { $nickName.focus(); } catch(e){}
+}
+function nickDone(){
+  setNick($nickName.value.trim().slice(0, 6) || '익명');
+  $nickName.blur();
+  $nickBox.hidden = true;
+  showHello();
+  const t = nickThen; nickThen = null;
+  if (t) t();
+}
+document.getElementById('nickOk').addEventListener('click', nickDone);
+document.getElementById('nickChange').addEventListener('click', e => { e.stopPropagation(); openNick(); });
+$nickName.addEventListener('keydown', e => {
+  e.stopPropagation();   // 글자 입력이 게임 단축키(Esc 등)로 새지 않게
+  if (e.key === 'Enter' || e.keyCode === 13){ e.preventDefault(); nickDone(); }
+});
+$nickName.addEventListener('focus', () => {
+  setTimeout(() => { try { $nickName.scrollIntoView({ block: 'center' }); } catch(e){} }, 300);   // 폰 키보드가 올라와도 보이게
+});
 
 // 시작 화면의 순위표 창
 const $rankBox = document.getElementById('rankBox'), $rankAsk = document.getElementById('rankAsk');
@@ -1679,6 +1700,7 @@ var introDone = false;
       if (k >= 1 && fontsOk){
         ready = true; load.hidden = true; btn.hidden = false;
         document.getElementById('introRank').hidden = false;
+        showHello();
         try { btn.focus({ preventScroll: true }); } catch(e){}
       }
     }
@@ -1690,6 +1712,9 @@ var introDone = false;
   el.addEventListener('pointerdown', () => { audioUnlock(); if (!introDone) bgm.start('intro'); });
   btn.addEventListener('click', () => {
     audioUnlock();
+    if (!getNick()) openNick(goStart); else goStart();
+  });
+  function goStart(){
     sfx.mission();
     start();
     paused = false;
@@ -1697,7 +1722,7 @@ var introDone = false;
     bgm.stop(0.6); bgm.start('game', 0.8);   // 시작 음악은 0.6초 동안 줄이고, 게임 음악으로
     el.classList.add('out');
     setTimeout(() => { el.hidden = true; running = false; }, 460);
-  });
+  }
 
   // 나가기 → 처음 화면 다시 보여주기
   window.showIntro = () => {
