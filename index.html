@@ -112,7 +112,34 @@ button.go.danger:active{box-shadow:0 1px 0 #c9618f}
 .intro .tip{font-size:13px;opacity:.7;margin:0}
 @keyframes float{50%{transform:translateY(-6px)}}
 @keyframes pulse{50%{transform:scale(1.07)}}
-@media (prefers-reduced-motion:reduce){.card,.intro h1,.intro .go{animation:none}.score{transition:none}}
+/* 순위표 */
+.over{overflow-y:auto;padding:10px 0}
+.card{max-height:calc(100dvh - 20px);box-sizing:border-box}
+.rankNew{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:4px}
+.rankPlace{font-size:38px;color:var(--pink);animation:float 1.6s ease-in-out infinite}
+.nameRow{display:flex;gap:8px;align-items:center;justify-content:center}
+.nameRow input{
+  font-family:var(--font-display);font-size:26px;width:5.2em;max-width:42vw;text-align:center;color:var(--space);
+  background:#fff;border:3px solid var(--pop);border-radius:18px;padding:6px 8px;outline:none;box-sizing:border-box
+}
+.nameRow input:focus{box-shadow:0 0 0 4px rgba(255,214,77,.45)}
+.nameRow button.go{min-width:0;margin-top:0;padding:10px 18px;font-size:22px;white-space:nowrap;flex:none}
+.rankList{list-style:none;margin:4px 0;padding:4px 6px;width:min(300px,72vw);max-height:min(32vh,250px);overflow-y:auto;
+  display:flex;flex-direction:column;gap:4px;background:rgba(0,0,0,.18);border-radius:18px;overscroll-behavior:contain}
+.rankList li{display:flex;align-items:center;gap:8px;padding:3px 10px;border-radius:14px;font-size:18px;background:rgba(255,255,255,.07)}
+.rankList .no{width:30px;text-align:center;font-size:18px;flex:none}
+.rankList canvas{flex:none}
+.rankList .nm{flex:1;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rankList .sc{color:var(--pop);font-variant-numeric:tabular-nums}
+.rankList li.me{background:rgba(255,156,200,.35);box-shadow:0 0 0 2px var(--pink),0 0 14px rgba(255,156,200,.8);animation:hop .5s ease-in-out 3}
+.rankList li.empty{justify-content:center;opacity:.75;background:none;padding:14px}
+@keyframes hop{50%{transform:translateY(-4px) scale(1.03)}}
+.intro .rankBtn{font-size:17px;padding:6px 20px;min-width:0;margin-top:-4px}
+.ranks{z-index:40}
+button.textbtn{background:none;border:none;color:var(--text);opacity:.6;font-family:var(--font-display);font-size:14px;text-decoration:underline;cursor:pointer;padding:4px}
+.rankAsk{display:flex;gap:8px;align-items:center;font-size:15px;flex-wrap:wrap;justify-content:center}
+.rankAsk button{min-width:0!important;padding:6px 16px;font-size:16px;margin-top:0}
+@media (prefers-reduced-motion:reduce){.card,.intro h1,.intro .go{animation:none}.score{transition:none}.rankList li.me,.rankPlace{animation:none}}
 </style>
 
 <div class="app">
@@ -136,6 +163,14 @@ button.go.danger:active{box-shadow:0 1px 0 #c9618f}
     <div class="big outline" id="finalScore">0</div>
     <div class="msg" id="finalMsg"></div>
     <div class="stats" id="finalStats"></div>
+    <div class="rankNew" id="rankNew" hidden>
+      <div class="rankPlace outline" id="rankPlace">1등!</div>
+      <div class="nameRow">
+        <input id="rankName" type="text" maxlength="6" placeholder="이름" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" aria-label="이름">
+        <button class="go" id="rankSave" type="button">등록</button>
+      </div>
+    </div>
+    <ol class="rankList" id="overRanks" hidden></ol>
     <button class="go" id="restart" type="button">다시 하기</button>
     <button class="ghost" id="overExit" type="button">처음 화면으로</button>
   </div>
@@ -171,7 +206,21 @@ button.go.danger:active{box-shadow:0 1px 0 #c9618f}
     <span id="introMsg">우주로 출발하는 중...</span>
   </div>
   <button class="go" id="introGo" type="button" hidden>시작하기</button>
+  <button class="ghost rankBtn" id="introRank" type="button" hidden>🏆 순위</button>
   <p class="tip">소리를 켜면 더 재밌어요</p>
+</div>
+
+<div class="over ranks" id="rankBox" hidden>
+  <div class="card">
+    <h2>🏆 순위표</h2>
+    <ol class="rankList" id="introRanks"></ol>
+    <button class="go" id="rankClose" type="button">닫기</button>
+    <button class="textbtn" id="rankClear" type="button">순위 지우기</button>
+    <div class="rankAsk" id="rankAsk" hidden>정말 지울까요?
+      <button class="ghost" id="rankAskNo" type="button">아니요</button>
+      <button class="go danger" id="rankAskYes" type="button">지우기</button>
+    </div>
+  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
@@ -989,8 +1038,111 @@ function endGame(){
   document.getElementById('finalScore').textContent = score;
   document.getElementById('finalMsg').textContent = (score >= best && score > 0 ? '새 기록이에요! ' : '') + `${PLANETS[biggest].name}까지 만들었어요`;
   document.getElementById('finalStats').textContent = `합친 횟수 ${merges}번`;
+  rankAtGameOver();
   setTimeout(() => { $over.hidden = false; }, 500);
 }
+
+// ===== 순위표 (이 기기에만 저장) =====
+const RANK_KEY = 'planetMergeRanks', NAME_KEY = 'planetMergeName', MEDALS = ['🥇','🥈','🥉'];
+let rankPending = null;
+const $rankNew = document.getElementById('rankNew'), $rankName = document.getElementById('rankName');
+const $overRanks = document.getElementById('overRanks');
+function loadRanks(){
+  try {
+    const a = JSON.parse(localStorage.getItem(RANK_KEY) || '[]');
+    return Array.isArray(a) ? a.filter(r => r && typeof r.score === 'number') : [];
+  } catch(e){ return []; }
+}
+function saveRanks(a){ try { localStorage.setItem(RANK_KEY, JSON.stringify(a)); } catch(e){} }
+function rankPlaceFor(sc){
+  if (sc <= 0) return 0;
+  const pos = loadRanks().filter(r => r.score >= sc).length;
+  return pos < 10 ? pos + 1 : 0;
+}
+function renderRanks(ol, hiDate){
+  ol.textContent = '';
+  const a = loadRanks();
+  if (!a.length){
+    const li = document.createElement('li'); li.className = 'empty'; li.textContent = '아직 기록이 없어요';
+    ol.appendChild(li); return;
+  }
+  let hiLi = null;
+  a.forEach((r, i) => {
+    const li = document.createElement('li');
+    const no = document.createElement('span'); no.className = 'no'; no.textContent = MEDALS[i] || (i + 1);
+    const c = document.createElement('canvas');
+    const lv = Math.max(0, Math.min(PLANETS.length - 1, r.planet | 0));
+    drawPlanet(setupMini(c, 28), lv, 14, 14, 11, { mood: 'happy' });
+    const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = String(r.name || '익명');
+    const sc = document.createElement('span'); sc.className = 'sc'; sc.textContent = r.score;
+    li.append(no, c, nm, sc);
+    if (hiDate && r.date === hiDate){ li.classList.add('me'); hiLi = li; }
+    ol.appendChild(li);
+  });
+  if (hiLi) setTimeout(() => { try { hiLi.scrollIntoView({ block: 'nearest' }); } catch(e){} }, 60);
+}
+function rankAtGameOver(){
+  const place = rankPlaceFor(score);
+  if (place){
+    rankPending = { score, planet: biggest };
+    document.getElementById('rankPlace').textContent = place + '등! ' + (place === 1 ? '🏆' : MEDALS[place - 1] || '🎉');
+    let last = ''; try { last = localStorage.getItem(NAME_KEY) || ''; } catch(e){}
+    $rankName.value = last;
+    $rankNew.hidden = false; $overRanks.hidden = true;
+  } else {
+    rankPending = null;
+    $rankNew.hidden = true; $overRanks.hidden = false;
+    renderRanks($overRanks);
+  }
+}
+function rankRegister(){
+  if (!rankPending) return;
+  const name = $rankName.value.trim().slice(0, 6) || '익명';
+  const entry = { name, score: rankPending.score, planet: rankPending.planet, date: Date.now() };
+  const a = loadRanks(); a.push(entry);
+  a.sort((x, y) => y.score - x.score || x.date - y.date);
+  saveRanks(a.slice(0, 10));
+  try { localStorage.setItem(NAME_KEY, name); } catch(e){}
+  rankPending = null;
+  $rankName.blur();
+  sfx.mission();
+  $rankNew.hidden = true; $overRanks.hidden = false;
+  renderRanks($overRanks, entry.date);
+}
+document.getElementById('rankSave').addEventListener('click', rankRegister);
+$rankName.addEventListener('keydown', e => {
+  e.stopPropagation();   // 글자 입력이 게임 단축키(Esc 등)로 새지 않게
+  if (e.key === 'Enter' || e.keyCode === 13){ e.preventDefault(); rankRegister(); }
+});
+$rankName.addEventListener('focus', () => {
+  setTimeout(() => { try { $rankName.scrollIntoView({ block: 'center' }); } catch(e){} }, 300);   // 폰 키보드가 올라와도 보이게
+});
+['pointerdown','pointerup','touchstart'].forEach(t => $over.addEventListener(t, e => e.stopPropagation()));
+
+// 시작 화면의 순위표 창
+const $rankBox = document.getElementById('rankBox'), $rankAsk = document.getElementById('rankAsk');
+function openRankBox(e){
+  if (e) e.stopPropagation();
+  renderRanks(document.getElementById('introRanks'));
+  $rankAsk.hidden = true; document.getElementById('rankClear').hidden = false;
+  $rankBox.hidden = false;
+  document.getElementById('rankClose').focus();
+}
+document.getElementById('introRank').addEventListener('click', openRankBox);
+document.getElementById('rankClose').addEventListener('click', () => { $rankBox.hidden = true; });
+document.getElementById('rankClear').addEventListener('click', () => {
+  document.getElementById('rankClear').hidden = true; $rankAsk.hidden = false;
+  document.getElementById('rankAskNo').focus();
+});
+document.getElementById('rankAskNo').addEventListener('click', () => {
+  $rankAsk.hidden = true; document.getElementById('rankClear').hidden = false;
+});
+document.getElementById('rankAskYes').addEventListener('click', () => {
+  saveRanks([]);
+  renderRanks(document.getElementById('introRanks'));
+  $rankAsk.hidden = true; document.getElementById('rankClear').hidden = false;
+});
+$rankBox.addEventListener('click', e => { if (e.target === $rankBox) $rankBox.hidden = true; });
 document.getElementById('restart').addEventListener('click', () => { audioUnlock(); start(); });
 
 // ===== 그리기 =====
@@ -1526,6 +1678,7 @@ var introDone = false;
       bar.style.width = (k*100) + '%';
       if (k >= 1 && fontsOk){
         ready = true; load.hidden = true; btn.hidden = false;
+        document.getElementById('introRank').hidden = false;
         try { btn.focus({ preventScroll: true }); } catch(e){}
       }
     }
