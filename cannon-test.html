@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>행성 합치기 - 대포 테스트</title>
+<title>행성 합치기 - 로켓 테스트</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap">
@@ -189,10 +189,10 @@ const DROP_COOLDOWN = 420;
 const MAX_START = 4;
 const SAD_AFTER = 7;             // 이만큼 떨어뜨리는 동안 못 합쳐지면 시무룩
 const CRY_AFTER = 12;            // 이만큼 지나면 눈물 뚝뚝
-// 대포 (위 가운데 고정)
-const CANNON_X = 200, CANNON_Y = 42;   // 회전 중심
-const CANNON_R = 26;                   // 몸통 반지름
-const BARREL = 50;                     // 회전 중심 ~ 포구 거리
+// 로켓 (위 가운데에 떠 있음, 코끝이 겨누는 쪽을 봄)
+const CANNON_X = 200, CANNON_Y = 50;   // 회전 중심 (위쪽에 꼬리 불꽃 자리를 남김)
+const ROCKET_NOSE = 34;                // 회전 중심 ~ 코끝 거리
+const ROCKET_TAIL = 24;                // 회전 중심 ~ 꼬리(불꽃 나오는 곳) 거리
 const AIM_MAX = 65 * Math.PI/180;      // 바로 아래에서 좌우 최대 65도
 const SHOOT_SPEED = 5.5;               // 발사 속도 (MAXV 9보다 한참 느리게)
 
@@ -464,8 +464,23 @@ function tone(freq, dur, type = 'sine', vol = 0.18, slideTo = 0, delay = 0){
 }
 const sfx = {
   drop(){ tone(520, 0.12, 'sine', 0.12, 260); },
-  // 대포 발사: "뿅" (위로 미끄러지는 소리) + 낮은 "펑"
-  shoot(){ tone(380, 0.13, 'square', 0.06, 980); tone(170, 0.16, 'sine', 0.16, 70); tone(1300, 0.08, 'triangle', 0.05, 1800, 0.05); },
+  // 로켓 발사: "슝" (바람 소리) + 위로 미끄러지는 "뿅" + 낮은 "퉁"
+  shoot(){
+    tone(300, 0.2, 'sine', 0.1, 900); tone(140, 0.14, 'sine', 0.12, 60); tone(1400, 0.08, 'triangle', 0.04, 2000, 0.06);
+    if (!actx || !soundOn) return;
+    try {
+      const t0 = actx.currentTime, dur = 0.32, n = Math.floor(actx.sampleRate*dur);
+      const buf = actx.createBuffer(1, n, actx.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < n; i++) d[i] = Math.random()*2 - 1;
+      const src = actx.createBufferSource(); src.buffer = buf;
+      const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.4;
+      bp.frequency.setValueAtTime(500, t0); bp.frequency.exponentialRampToValueAtTime(2600, t0 + dur);
+      const gn = actx.createGain();
+      gn.gain.setValueAtTime(0.0001, t0); gn.gain.exponentialRampToValueAtTime(0.16, t0 + 0.05);
+      gn.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      src.connect(bp).connect(gn).connect(actx.destination); src.start(t0); src.stop(t0 + dur + 0.02);
+    } catch(e){}
+  },
   land(v, lv = 0){ const f = 260 - lv*16; tone(f, 0.09 + lv*0.008, 'sine', Math.min(0.13, v*0.018), f*0.6); },
   merge(lv){ const f = 330*Math.pow(2, lv/7); tone(f, 0.16, 'triangle', 0.2, f*1.6); tone(f*2, 0.18, 'sine', 0.08, 0, 0.06); },
   mission(){ [523,659,784,1047].forEach((f,i) => tone(f, 0.22, 'triangle', 0.16, 0, i*0.09)); },
@@ -694,10 +709,12 @@ cv.addEventListener('pointermove', e => { if (pressing || e.pointerType === 'mou
 cv.addEventListener('pointerup', e => { if (!pressing) return; pressing = false; aimAt(e); drop(); });
 cv.addEventListener('pointercancel', () => { pressing = false; });
 
-// 포구에서 행성이 나오는 자리 (크면 조금 더 아래, 벽 안쪽으로)
-function muzzlePos(lv, ang){
-  const r = PLANETS[lv].r, d = BARREL + r*0.55;
-  return { x: clampX(CANNON_X + Math.sin(ang)*d, lv), y: CANNON_Y + Math.cos(ang)*d };
+// 로켓이 살짝 둥실둥실 (그리기·발사·궤적 모두 같은 값을 씀)
+function rocketBob(now){ return Math.sin(now/520)*1.5; }
+// 로켓 코끝 바로 앞에서 행성이 나오는 자리 (코끝에 딱 붙게, 벽 안쪽으로)
+function muzzlePos(lv, ang, now = performance.now()){
+  const r = PLANETS[lv].r, d = ROCKET_NOSE + r + 1;
+  return { x: clampX(CANNON_X + Math.sin(ang)*d, lv), y: CANNON_Y + rocketBob(now) + Math.cos(ang)*d };
 }
 
 function drop(){
@@ -707,21 +724,23 @@ function drop(){
   lastDrop = now;
   dropCount++;
   const ang = aimAng, dirX = Math.sin(ang), dirY = Math.cos(ang);
-  const m = muzzlePos(current, ang);
+  const m = muzzlePos(current, ang, now);
   const b = makePlanet(current, m.x, m.y);
   Body.setVelocity(b, { x: dirX*SHOOT_SPEED, y: dirY*SHOOT_SPEED });
   Composite.add(engine.world, b);
-  // 손맛: 반동 + 포구 연기·반짝이
+  // 손맛: 로켓이 뒤로 밀리고 꼬리 불꽃 펑! + 꼬리 연기, 코끝 반짝이
   cannonKick = now;
-  const mx = CANNON_X + dirX*BARREL, my = CANNON_Y + dirY*BARREL;
+  const cy = CANNON_Y + rocketBob(now);
+  const tx = CANNON_X - dirX*(ROCKET_TAIL + 8), ty = cy - dirY*(ROCKET_TAIL + 8);   // 꼬리 불꽃
   for (let i = 0; i < 12; i++){
-    const a = ang + rnd(-0.9, 0.9), sp = rnd(0.8, 2.6);
-    effects.push({ x: mx, y: my, vx: Math.sin(a)*sp, vy: Math.cos(a)*sp - 0.4, life: rnd(0.6, 0.9),
+    const a = ang + Math.PI + rnd(-0.8, 0.8), sp = rnd(0.8, 2.4);
+    effects.push({ x: tx, y: ty, vx: Math.sin(a)*sp, vy: Math.cos(a)*sp - 0.3, life: rnd(0.6, 0.9),
       color: ['#ffffff','#e6e2ff','#ffd6e2'][i % 3], size: rnd(8, 13) });
   }
+  const nx = CANNON_X + dirX*ROCKET_NOSE, ny = cy + dirY*ROCKET_NOSE;            // 코끝
   for (let i = 0; i < 6; i++){
     const a = ang + rnd(-1.3, 1.3), sp = rnd(1.5, 3.5);
-    effects.push({ x: mx, y: my, vx: Math.sin(a)*sp, vy: Math.cos(a)*sp, life: 0.8,
+    effects.push({ x: nx, y: ny, vx: Math.sin(a)*sp, vy: Math.cos(a)*sp, life: 0.8,
       color: ['#ffd84d','#ff9cc8','#9de9eb'][i % 3], size: rnd(5, 7), star: true });
   }
   current = nextLv; nextLv = randLv();
@@ -756,47 +775,70 @@ function rrect(g, x, y, w, h, r){
   g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
   g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
 }
+// 귀여운 로켓 (시작 화면 로켓과 같은 색). 그리는 좌표계는 코끝이 +y(아래)인 상태
 function drawCannon(now){
   const t = (now - cannonKick)/1000;
-  const recoil = t < 1 ? 9*Math.exp(-t*14) : 0;
-  const k = t < 1 ? 0.2*Math.exp(-t*7)*Math.cos(t*30) : 0;   // 몸통 출렁
+  const recoil = t < 1 ? 10*Math.exp(-t*12) : 0;                  // 뒤로 밀림
+  const k = t < 1 ? 0.16*Math.exp(-t*7)*Math.cos(t*30) : 0;       // 몸통 출렁
+  const wob = t < 1 ? 0.14*Math.exp(-t*6)*Math.sin(t*26) : 0;     // 살짝 흔들
+  const flare = 1 + (t < 1 ? 1.8*Math.exp(-t*6) : 0);             // 발사 때 불꽃 크게
   barrelAng += (aimAng - barrelAng)*0.4;
-  // 포신 (몸통 뒤에)
   ctx.save();
-  ctx.translate(CANNON_X, CANNON_Y);
-  ctx.rotate(-barrelAng);
+  ctx.translate(CANNON_X, CANNON_Y + rocketBob(now));
+  ctx.rotate(-barrelAng + wob);
   ctx.translate(0, -recoil);
-  const bw = 34 + k*14, bl = BARREL;
-  ctx.lineWidth = 3; ctx.strokeStyle = '#c9c2ff';
-  const gr = ctx.createLinearGradient(-bw/2, 0, bw/2, 0);
-  gr.addColorStop(0, '#5fb3f0'); gr.addColorStop(0.35, '#a8dcff'); gr.addColorStop(1, '#5fb3f0');
-  ctx.fillStyle = gr;
-  rrect(ctx, -bw/2, 0, bw, bl, 9); ctx.fill(); ctx.stroke();
-  // 포구 테두리 (흰 띠)
-  ctx.fillStyle = '#ffffff';
-  rrect(ctx, -bw/2 - 3, bl - 9, bw + 6, 10, 5); ctx.fill(); ctx.stroke();
-  // 포신의 별 무늬
-  drawStar5(ctx, 0, bl*0.55, 4.5, '#ffd84d');
-  ctx.restore();
-
-  // 몸통 (동글동글 분홍)
-  ctx.save();
-  ctx.translate(CANNON_X, CANNON_Y);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  // 꼬리 불꽃 (하늘하늘)
+  const f = (1 + Math.sin(now/45)*0.18 + Math.sin(now/23)*0.08)*flare;
+  const T = -ROCKET_TAIL + 2;
+  ctx.fillStyle = 'rgba(255,156,200,.55)';
+  ctx.beginPath(); ctx.moveTo(-12, T); ctx.quadraticCurveTo(-14, T - 14*f, 0, T - 24*f); ctx.quadraticCurveTo(14, T - 14*f, 12, T); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#ffb648';
+  ctx.beginPath(); ctx.moveTo(-9, T); ctx.quadraticCurveTo(-10, T - 11*f, 0, T - 19*f); ctx.quadraticCurveTo(10, T - 11*f, 9, T); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#fff2a8';
+  ctx.beginPath(); ctx.moveTo(-5, T); ctx.quadraticCurveTo(-5.5, T - 7*f, 0, T - 11*f); ctx.quadraticCurveTo(5.5, T - 7*f, 5, T); ctx.closePath(); ctx.fill();
   ctx.scale(1 + k, 1 - k);
-  // 머리 위 안테나
-  ctx.strokeStyle = '#c9c2ff'; ctx.lineWidth = 3; ctx.lineCap = 'round';
-  ctx.beginPath(); ctx.moveTo(0, -CANNON_R + 2); ctx.lineTo(0, -CANNON_R - 7); ctx.stroke();
-  drawStar5(ctx, 0, -CANNON_R - 9, 5.5, '#ffd84d');
-  const bg = ctx.createRadialGradient(-8, -10, 3, 0, 0, CANNON_R);
-  bg.addColorStop(0, '#ffc2d0'); bg.addColorStop(1, '#ff6b8b');
-  ctx.fillStyle = bg; ctx.strokeStyle = '#c9c2ff'; ctx.lineWidth = 3;
-  ctx.beginPath(); ctx.arc(0, 0, CANNON_R, 0, PI2); ctx.fill(); ctx.stroke();
+  // 날개 (분홍, 꼬리 양옆)
+  ctx.fillStyle = '#ff6b8b'; ctx.strokeStyle = '#c9c2ff'; ctx.lineWidth = 2.5;
+  for (const sx of [-1, 1]){
+    ctx.beginPath(); ctx.moveTo(sx*15, 0); ctx.quadraticCurveTo(sx*30, -6, sx*28, -26);
+    ctx.lineTo(sx*12, -18); ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  // 몸통 (하얗고 통통)
+  const body = () => {
+    ctx.beginPath(); ctx.moveTo(-15, -ROCKET_TAIL);
+    ctx.quadraticCurveTo(0, -ROCKET_TAIL - 4, 15, -ROCKET_TAIL);
+    ctx.quadraticCurveTo(20, -8, 18, 6);
+    ctx.quadraticCurveTo(15, 26, 0, ROCKET_NOSE);
+    ctx.quadraticCurveTo(-15, 26, -18, 6);
+    ctx.quadraticCurveTo(-20, -8, -15, -ROCKET_TAIL);
+    ctx.closePath();
+  };
+  const bg = ctx.createLinearGradient(-18, 0, 18, 0);
+  bg.addColorStop(0, '#ffffff'); bg.addColorStop(0.7, '#ffffff'); bg.addColorStop(1, '#e6e2ff');
+  body(); ctx.fillStyle = bg; ctx.fill();
+  // 코 (분홍) + 꼬리 띠
+  ctx.save(); body(); ctx.clip();
+  ctx.fillStyle = '#ff6b8b'; ctx.fillRect(-25, 17, 50, 30);
+  ctx.fillStyle = '#ffc2d0'; ctx.fillRect(-25, 14, 50, 3);
+  ctx.fillStyle = '#ffd6e2'; ctx.fillRect(-25, -ROCKET_TAIL - 6, 50, 9);
+  ctx.restore();
+  body(); ctx.strokeStyle = '#c9c2ff'; ctx.lineWidth = 3; ctx.stroke();
+  // 몸통 반짝 하이라이트
+  ctx.fillStyle = 'rgba(255,255,255,.9)';
+  ctx.beginPath(); ctx.ellipse(-12, -2, 2.2, 6, 0.1, 0, PI2); ctx.fill();
+  // 동그란 창문 + 얼굴
+  const wy = -3, wr = 12.5;
+  ctx.fillStyle = '#7cc8ff'; ctx.beginPath(); ctx.arc(0, wy, wr, 0, PI2); ctx.fill();
+  ctx.lineWidth = 3; ctx.strokeStyle = '#c9c2ff'; ctx.stroke();
   ctx.fillStyle = 'rgba(255,255,255,.55)';
-  ctx.beginPath(); ctx.ellipse(-9, -12, 7, 4.5, -0.6, 0, PI2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(-5, wy - 7, 4, 2, -0.4, 0, PI2); ctx.fill();
   let mood = 'normal';
   if (t < 0.6) mood = 'happy';
   else if (overSince) mood = 'scared';
-  drawFace(ctx, CANNON_R*0.95, mood, mood === 'normal' && (now % 2900) < 130, now);
+  ctx.save(); ctx.translate(0, wy + 1);
+  drawFace(ctx, wr*1.25, mood, mood === 'normal' && (now % 2900) < 130, now);
+  ctx.restore();
   ctx.restore();
 }
 
@@ -883,7 +925,7 @@ function draw(now){
       });
       ctx.globalAlpha = 1;
     }
-    const m = muzzlePos(current, barrelAng);
+    const m = muzzlePos(current, barrelAng, now);
     const pop = Math.min(1, (now - lastDrop)/DROP_COOLDOWN);   // 발사 뒤 새 행성이 포구에서 쏙 나옴
     drawPlanet(ctx, current, m.x, m.y, PLANETS[current].r*(0.6 + 0.4*pop), { alpha: ready ? 1 : 0.4, blink: (now % 3200) < 130 });
   }
@@ -899,7 +941,7 @@ function draw(now){
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
     ctx.font = '24px "Jua","Apple SD Gothic Neo",sans-serif';
     ctx.lineWidth = 7; ctx.strokeStyle = '#1b2350';
-    ctx.strokeText('꾹 눌러서 대포를 겨누고', W/2, H*0.5); ctx.fillStyle = '#fff'; ctx.fillText('꾹 눌러서 대포를 겨누고', W/2, H*0.5);
+    ctx.strokeText('꾹 눌러서 로켓을 겨누고', W/2, H*0.5); ctx.fillStyle = '#fff'; ctx.fillText('꾹 눌러서 로켓을 겨누고', W/2, H*0.5);
     ctx.strokeText('손을 떼면 발사!', W/2, H*0.5 + 34); ctx.fillStyle = '#ffd84d'; ctx.fillText('손을 떼면 발사!', W/2, H*0.5 + 34);
   }
 
