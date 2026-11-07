@@ -90,3 +90,7 @@
 ## 배포
 
 여러 사람이 동시에 QR로 접속하므로 GitHub Pages / Netlify 같은 정적 호스팅에 `planet-merge.html`을 `index.html`로 올리고, 그 주소로 QR 코드를 만든다. 첫 접속 시 cdnjs와 Google Fonts에 접근 가능해야 한다.
+
+- 저장소: https://github.com/seowls734/asv26_13 (팀 13), 게임 파일은 저장소 루트의 `index.html`
+- **수정할 때마다 바로 커밋하고 `main`에 푸시한다** (묻지 않고 진행, 강제 푸시 금지). 커밋 작성자는 `seowls734` / `withpapa.001@gmail.com`
+- 작업은 팀 에이전트(서브에이전트)로 나눠서 한다: 수정 담당과 검토·폰 화면 테스트 담당. `index.html`을 두 에이전트가 동시에 고치지 않는다
