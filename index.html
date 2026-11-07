@@ -601,15 +601,17 @@ function doMerges(now){
       const n = makePlanet(lv + 1, x, y);
       n.happyUntil = now + 900;
       Composite.add(engine.world, n);
-      score += (lv + 1) * (lv + 2);
-      biggest = Math.max(biggest, lv + 1);
       const isNew = !seen.has(lv + 1);
+      // 점수 후하게: 기본 5배 + 이번 판 처음 만든 행성이면 보너스
+      const pts = (lv + 1) * (lv + 2) * 5 + (isNew ? 20 * (lv + 1) : 0);
+      score += pts;
+      biggest = Math.max(biggest, lv + 1);
       seen.add(lv + 1);
       burst(x, y, PLANETS[lv+1].c, PLANETS[lv+1].r, isNew);
       shockwave(x, y, PLANETS[lv+1].r, n);
       if (isNew){
         // 이번 판에서 처음 만든 행성: 크게 축하!
-        labels.push({ text: `NEW! ${PLANETS[lv+1].name} 탄생!`, x: Math.max(90, Math.min(W - 90, x)), y: y - PLANETS[lv+1].r - 10, life: 1.6, big: true });
+        labels.push({ text: `NEW! ${PLANETS[lv+1].name} 탄생! +${pts}`, x: Math.max(90, Math.min(W - 90, x)), y: y - PLANETS[lv+1].r - 10, life: 1.6, big: true });
         screenFlash = 1;
         shake = Math.max(shake, 5 + lv*0.4);
         for (let i = 0; i < 26; i++){
@@ -618,12 +620,12 @@ function doMerges(now){
         }
         sfx.mission();
       } else {
-        labels.push({ text: PLANETS[lv+1].name, x, y: y - PLANETS[lv+1].r - 4, life: 1 });
+        labels.push({ text: `${PLANETS[lv+1].name} +${pts}`, x, y: y - PLANETS[lv+1].r - 4, life: 1 });
       }
       checkMission(lv + 1);
     } else {
-      score += 300;
-      labels.push({ text: '초신성 폭발! +300', x, y, life: 1.4 });
+      score += 1000;
+      labels.push({ text: '초신성 폭발! +1000', x, y, life: 1.4 });
       burst(x, y, '#ffffff', 98); burst(x, y, '#ffd84d', 98);
     }
     if (lv >= 5) shake = Math.min(9, 2 + lv*0.7);
