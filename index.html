@@ -1513,7 +1513,7 @@ var introDone = false;
 
   function drawBg(dt, now){
     bg.clearRect(0,0,BW,BH);
-    if (bgStatic) bg.drawImage(bgStatic, 0, 0, BW, BH);
+    if (bgStatic && bgStatic.width && bgStatic.height) bg.drawImage(bgStatic, 0, 0, BW, BH);
     // 별자리 꼭짓점은 반짝반짝
     CONST.forEach((line, li) => line.forEach(([x,y], i) => {
       bg.globalAlpha = 0.55 + 0.45*Math.sin(now/500 + li*2 + i);
