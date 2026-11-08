@@ -1607,6 +1607,7 @@ var introDone = false;
   }
 
   function drawBg(dt, now){
+    if (BW < 60 || BH < 60) return;   // 화면 크기가 잠깐 0이 되면 건너뜀 (오류로 애니메이션이 멈추던 문제)
     bg.clearRect(0,0,BW,BH);
     if (bgStatic && bgStatic.width && bgStatic.height) bg.drawImage(bgStatic, 0, 0, BW, BH);
     // 별자리 꼭짓점은 반짝반짝
@@ -1619,7 +1620,7 @@ var introDone = false;
     // 제목 주위를 도는 작은 행성들
     const er = el.getBoundingClientRect(), tr = titleEl.getBoundingClientRect();
     const ox = tr.left - er.left + tr.width/2, oy = tr.top - er.top + tr.height/2;
-    const rx = Math.min(BW/2 - 16, tr.width*0.85), ry = tr.height*0.62;
+    const rx = Math.max(1, Math.min(BW/2 - 16, tr.width*0.85)), ry = Math.max(1, tr.height*0.62);
     bg.save(); bg.translate(ox, oy); bg.rotate(-0.18);
     bg.strokeStyle = 'rgba(255,216,77,.28)'; bg.lineWidth = 1.5; bg.setLineDash([5,6]);
     bg.beginPath(); bg.ellipse(0, 0, rx, ry, 0, 0, PI2); bg.stroke(); bg.setLineDash([]);
@@ -1762,7 +1763,7 @@ var introDone = false;
     if (!running) return;
     const dt = Math.min(0.05, (now - last)/1000); last = now;
     stepBalls(dt, now);
-    drawBg(dt, now);
+    try { drawBg(dt, now); } catch(e){}   // 배경 그리기 오류가 나도 시작 화면이 멈추지 않게
     g.clearRect(0,0,CW,CH);
 
     // 로켓 꼬리 반짝이
