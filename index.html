@@ -151,6 +151,17 @@ button.go.danger:active{box-shadow:0 1px 0 #c9618f}
 button.textbtn{background:none;border:none;color:var(--text);opacity:.6;font-family:var(--font-display);font-size:14px;text-decoration:underline;cursor:pointer;padding:4px}
 .rankAsk{display:flex;gap:8px;align-items:center;font-size:15px;flex-wrap:wrap;justify-content:center}
 .rankAsk button{min-width:0!important;padding:6px 16px;font-size:16px;margin-top:0}
+.rankTabs{display:flex;gap:6px;width:min(300px,72vw)}
+.rankTabs button{flex:1;font-family:var(--font-display);font-size:17px;padding:8px 2px;border-radius:16px;border:2px solid rgba(255,255,255,.25);
+  background:rgba(255,255,255,.08);color:var(--text);cursor:pointer;white-space:nowrap}
+.rankTabs button.on{background:var(--pop);color:var(--space);border-color:var(--pop)}
+.rankNote{font-size:13px;opacity:.7;margin:-2px 0}
+.myRank{display:flex;flex-direction:column;align-items:center;gap:4px;width:min(300px,72vw);padding:14px 0;background:rgba(0,0,0,.18);border-radius:18px}
+.myRank .rk{font-size:54px;line-height:1.1;color:var(--pink)}
+.myRank .of{font-size:16px;opacity:.8}
+.myRank .who{display:flex;align-items:center;gap:8px;font-size:20px}
+.myRank .who .sc{color:var(--pop)}
+.myRank .empty{opacity:.75;padding:14px;font-size:18px}
 @media (prefers-reduced-motion:reduce){.card,.intro h1,.intro .go{animation:none}.score{transition:none}.rankList li.me,.rankPlace{animation:none}}
 </style>
 
@@ -241,9 +252,15 @@ button.textbtn{background:none;border:none;color:var(--text);opacity:.6;font-fam
 <div class="over ranks" id="rankBox" hidden>
   <div class="card">
     <h2>🏆 순위표</h2>
+    <div class="rankTabs" role="tablist">
+      <button class="on" id="tabAll" type="button" role="tab" aria-selected="true">🌍 전체 순위</button>
+      <button id="tabMe" type="button" role="tab" aria-selected="false">🙋 내 순위</button>
+    </div>
+    <div class="rankNote" id="rankNote" hidden>이 폰 기록이에요</div>
     <ol class="rankList" id="introRanks"></ol>
+    <div class="myRank" id="myRank" hidden></div>
     <button class="go" id="rankClose" type="button">닫기</button>
-    <button class="textbtn" id="rankClear" type="button">순위 지우기</button>
+    <button class="textbtn" id="rankClear" type="button">이 폰 기록 지우기</button>
     <div class="rankAsk" id="rankAsk" hidden>정말 지울까요?
       <button class="ghost" id="rankAskNo" type="button">아니요</button>
       <button class="go danger" id="rankAskYes" type="button">지우기</button>
@@ -266,6 +283,9 @@ const DROP_COOLDOWN = 420;
 const MAX_START = 4;
 const SAD_AFTER = 7;             // 이만큼 떨어뜨리는 동안 못 합쳐지면 시무룩
 const CRY_AFTER = 12;            // 이만큼 지나면 눈물 뚝뚝
+// 전체 순위 (Firebase Cloud Firestore). 둘 중 하나라도 비어 있으면 이 폰 기록만 사용
+const FB_PROJECT = '';   // 예: 'planet-merge-12345'
+const FB_KEY = '';       // 웹 API 키
 // 로켓 (위 가운데에 떠 있음, 코끝이 겨누는 쪽을 봄)
 const CANNON_X = 200, CANNON_Y = 50;   // 회전 중심 (위쪽에 꼬리 불꽃 자리를 남김)
 const ROCKET_NOSE = 34;                // 회전 중심 ~ 코끝 거리
@@ -1159,13 +1179,15 @@ function rankPlaceFor(sc){
   const pos = loadRanks().filter(r => r.score >= sc).length;
   return pos < 10 ? pos + 1 : 0;
 }
-function renderRanks(ol, hiDate){
+function rankMsg(ol, text){
   ol.textContent = '';
-  const a = loadRanks();
-  if (!a.length){
-    const li = document.createElement('li'); li.className = 'empty'; li.textContent = '아직 기록이 없어요';
-    ol.appendChild(li); return;
-  }
+  const li = document.createElement('li'); li.className = 'empty'; li.textContent = text;
+  ol.appendChild(li);
+}
+function renderRanks(ol, hiDate){ renderList(ol, loadRanks(), r => hiDate && r.date === hiDate); }
+function renderList(ol, a, isMe){
+  ol.textContent = '';
+  if (!a.length){ rankMsg(ol, '아직 기록이 없어요'); return; }
   let hiLi = null;
   a.forEach((r, i) => {
     const li = document.createElement('li');
@@ -1176,7 +1198,7 @@ function renderRanks(ol, hiDate){
     const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = String(r.name || '익명');
     const sc = document.createElement('span'); sc.className = 'sc'; sc.textContent = r.score;
     li.append(no, c, nm, sc);
-    if (hiDate && r.date === hiDate){ li.classList.add('me'); hiLi = li; }
+    if (!hiLi && isMe(r)){ li.classList.add('me'); hiLi = li; }
     ol.appendChild(li);
   });
   if (hiLi) setTimeout(() => { try { hiLi.scrollIntoView({ block: 'nearest' }); } catch(e){} }, 60);
@@ -1185,17 +1207,121 @@ let nickMem = '';   // 저장이 막힌 브라우저에서도 이번 접속 동�
 function getNick(){ try { return localStorage.getItem(NAME_KEY) || nickMem; } catch(e){ return nickMem; } }
 function setNick(n){ nickMem = n; try { localStorage.setItem(NAME_KEY, n); } catch(e){} }
 // 게임오버: 닉네임으로 자동 등록
+let overSeq = 0;
 function rankAtGameOver(){
+  const seq = ++overSeq;
   const place = rankPlaceFor(score);
   $rankNew.hidden = !place; $overRanks.hidden = false;
-  if (!place){ renderRanks($overRanks); return; }
-  document.getElementById('rankPlace').textContent = place + '등! ' + (place === 1 ? '🏆' : MEDALS[place - 1] || '🎉');
-  const entry = { name: getNick() || '익명', score, planet: biggest, date: Date.now() };
-  const a = loadRanks(); a.push(entry);
-  a.sort((x, y) => y.score - x.score || x.date - y.date);
-  saveRanks(a.slice(0, 10));
-  renderRanks($overRanks, entry.date);
-  setTimeout(() => sfx.mission(), 650);   // 게임오버 소리 뒤에 축하음
+  if (place){
+    document.getElementById('rankPlace').textContent = place + '등! ' + (place === 1 ? '🏆' : MEDALS[place - 1] || '🎉');
+    const entry = { name: getNick() || '익명', score, planet: biggest, date: Date.now() };
+    const a = loadRanks(); a.push(entry);
+    a.sort((x, y) => y.score - x.score || x.date - y.date);
+    saveRanks(a.slice(0, 10));
+    renderRanks($overRanks, entry.date);
+    setTimeout(() => sfx.mission(), 650);   // 게임오버 소리 뒤에 축하음
+  } else renderRanks($overRanks);
+  if (!fbOn()) return;
+  // 전체 순위: 등록 → 내 순위·상위 목록을 받아 오면 바꿔 보여 줌 (실패하면 위의 이 폰 순위 그대로)
+  const sc = score, lv = biggest;
+  (async () => {
+    await fbSubmit(sc, lv);
+    const mine = onlineMine();
+    if (!mine) return;
+    const [top, rk] = await Promise.all([fbTop(), fbRank(mine.score)]);
+    if (seq !== overSeq || !top || !rk) return;
+    const r = rk.rank;
+    document.getElementById('rankPlace').textContent = '전체 ' + r + '위! ' + (r === 1 ? '🏆' : MEDALS[r - 1] || '🎉');
+    $rankNew.hidden = false;
+    renderList($overRanks, top, x => x.id === getPid());
+    if (!place && r <= 10) setTimeout(() => sfx.mission(), 100);
+  })().catch(() => {});
+}
+
+// ===== 전체 순위 (Cloud Firestore REST, SDK 없이 fetch만 사용) =====
+// 문서 scores/{playerId} = { name, score, planet, at }. 실패하면 조용히 이 폰 기록으로.
+const PID_KEY = 'planetMergePid', OBEST_KEY = 'planetMergeOnlineBest', OWANT_KEY = 'planetMergeOnlineWant';
+const lsGet = k => { try { return localStorage.getItem(k); } catch(e){ return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch(e){} };
+let pidMem = '', topCache = null, mineMem = null, wantMem = null;
+function fbOn(){ return !!(FB_PROJECT && FB_KEY && window.fetch); }
+function getPid(){
+  let p = lsGet(PID_KEY) || pidMem;
+  if (!p){
+    const ch = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    const u = new Uint8Array(20);
+    try { crypto.getRandomValues(u); } catch(e){ for (let i = 0; i < 20; i++) u[i] = Math.random()*256; }
+    p = Array.from(u, b => ch[b % ch.length]).join('');
+    lsSet(PID_KEY, p);
+  }
+  pidMem = p; return p;
+}
+const readJ = (k, mem) => { try { const v = JSON.parse(lsGet(k)); return v && typeof v.score === 'number' ? v : mem; } catch(e){ return mem; } };
+function onlineMine(){ return readJ(OBEST_KEY, mineMem); }   // 서버에 올라간 내 최고 기록 {name, score, planet}
+async function fbCall(path, body, method){
+  const ctl = window.AbortController ? new AbortController() : null;
+  const t = setTimeout(() => { if (ctl) ctl.abort(); }, 6000);
+  try {
+    const url = `https://firestore.googleapis.com/v1/projects/${FB_PROJECT}/databases/(default)/documents${path}${path.includes('?') ? '&' : '?'}key=${encodeURIComponent(FB_KEY)}`;
+    const res = await fetch(url, { method: method || 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body), signal: ctl ? ctl.signal : undefined });
+    if (!res.ok) throw new Error('firestore ' + res.status);
+    return await res.json();
+  } finally { clearTimeout(t); }
+}
+const iv = f => f ? Number(f.integerValue != null ? f.integerValue : f.doubleValue) || 0 : 0;
+// 게임오버 때 등록: 내 최고 기록보다 높을 때만 (실패하면 다음 판에 다시 시도)
+async function fbSubmit(sc, lv){
+  if (!fbOn()) return false;
+  const mine = onlineMine();
+  let want = readJ(OWANT_KEY, wantMem);
+  if (sc > 0 && (!want || sc > want.score)) want = { score: sc, planet: lv };
+  if (!want || (mine && want.score <= mine.score)) return false;
+  wantMem = want; lsSet(OWANT_KEY, JSON.stringify(want));
+  const name = String(getNick() || '익명').slice(0, 12);
+  const fields = {
+    name: { stringValue: name },
+    score: { integerValue: String(Math.max(0, Math.min(1000000, Math.floor(want.score)))) },
+    planet: { integerValue: String(Math.max(0, Math.min(10, want.planet | 0))) },
+    at: { timestampValue: new Date().toISOString() }
+  };
+  try {
+    await fbCall(`/scores/${getPid()}?` + ['name','score','planet','at'].map(f => 'updateMask.fieldPaths=' + f).join('&'), { fields }, 'PATCH');
+    const m = { name, score: want.score, planet: want.planet };
+    mineMem = m; lsSet(OBEST_KEY, JSON.stringify(m));
+    wantMem = null; try { localStorage.removeItem(OWANT_KEY); } catch(e){}
+    return true;
+  } catch(e){ return false; }
+}
+// 상위 30명
+async function fbTop(){
+  if (!fbOn()) return null;
+  try {
+    const rows = await fbCall(':runQuery', { structuredQuery: {
+      from: [{ collectionId: 'scores' }],
+      orderBy: [{ field: { fieldPath: 'score' }, direction: 'DESCENDING' }],
+      limit: 30 } });
+    const top = (Array.isArray(rows) ? rows : []).filter(r => r && r.document && r.document.fields).map(r => {
+      const f = r.document.fields;
+      return { id: String(r.document.name || '').split('/').pop(), name: f.name && f.name.stringValue || '익명',
+        score: iv(f.score), planet: iv(f.planet) };
+    });
+    topCache = top; return top;
+  } catch(e){ return null; }
+}
+// 내 순위 = (나보다 점수 높은 사람 수) + 1, 전체 인원
+async function fbRank(myBest){
+  if (!fbOn()) return null;
+  const count = where => fbCall(':runAggregationQuery', { structuredAggregationQuery: {
+    structuredQuery: Object.assign({ from: [{ collectionId: 'scores' }] }, where ? { where } : {}),
+    aggregations: [{ alias: 'c', count: {} }] } })
+    .then(r => iv(r && r[0] && r[0].result && r[0].result.aggregateFields && r[0].result.aggregateFields.c));
+  try {
+    const [above, total] = await Promise.all([
+      count({ fieldFilter: { field: { fieldPath: 'score' }, op: 'GREATER_THAN', value: { integerValue: String(Math.floor(myBest)) } } }),
+      count(null)]);
+    return { rank: above + 1, total: Math.max(total, above + 1) };
+  } catch(e){ return null; }
 }
 ['pointerdown','pointerup','touchstart'].forEach(t => $over.addEventListener(t, e => e.stopPropagation()));
 
@@ -1233,13 +1359,64 @@ $nickName.addEventListener('focus', () => {
 
 // 시작 화면의 순위표 창
 const $rankBox = document.getElementById('rankBox'), $rankAsk = document.getElementById('rankAsk');
+const $introRanks = document.getElementById('introRanks'), $myRank = document.getElementById('myRank'), $rankNote = document.getElementById('rankNote');
+let rankTab = 'all', boxSeq = 0;
+function showRankTab(tab){
+  rankTab = tab;
+  const seq = ++boxSeq;
+  [['all', 'tabAll'], ['me', 'tabMe']].forEach(([t, id]) => {
+    const b = document.getElementById(id); b.classList.toggle('on', t === tab); b.setAttribute('aria-selected', t === tab);
+  });
+  $introRanks.hidden = tab !== 'all'; $myRank.hidden = tab !== 'me';
+  const local = () => { $rankNote.hidden = false; renderRanks($introRanks); };
+  if (tab === 'all'){
+    if (!fbOn()){ local(); return; }
+    $rankNote.hidden = true;
+    if (topCache) renderList($introRanks, topCache, r => r.id === getPid());
+    else rankMsg($introRanks, '불러오는 중…');
+    fbSubmit(0, 0).then(fbTop).then(top => {   // 못 올린 기록이 있으면 먼저 올림
+      if (seq !== boxSeq) return;
+      if (top) renderList($introRanks, top, r => r.id === getPid());
+      else if (!topCache) local();
+    }).catch(() => {});
+  } else {
+    $rankNote.hidden = true;
+    const mine = onlineMine();
+    const nick = getNick() || '익명';
+    const localBest = loadRanks().filter(r => r.name === nick).sort((a, b) => b.score - a.score)[0];
+    const me = mine || localBest;
+    const paint = (rk) => {
+      $myRank.textContent = '';
+      const add = (cls, txt, parent) => { const d = document.createElement('div'); d.className = cls; if (txt != null) d.textContent = txt; (parent || $myRank).appendChild(d); return d; };
+      if (!me){ add('empty', '아직 기록이 없어요'); return; }
+      if (rk){ add('rk outline', rk.rank + '위' + (rk.rank <= 3 ? ' ' + MEDALS[rk.rank - 1] : '')); add('of', '전체 ' + rk.total + '명 중'); }
+      else if (fbOn() && mine) add('of', '불러오는 중…');
+      const who = add('who');
+      const c = document.createElement('canvas');
+      drawPlanet(setupMini(c, 34), Math.max(0, Math.min(PLANETS.length - 1, me.planet | 0)), 17, 17, 14, { mood: 'happy' });
+      const nm = document.createElement('span'); nm.textContent = nick;
+      const sc = document.createElement('span'); sc.className = 'sc'; sc.textContent = me.score + '점';
+      who.append(c, nm, sc);
+      if (!rk && !(fbOn() && mine)) add('of', '이 폰 기록이에요');
+    };
+    paint(null);
+    if (fbOn() && mine) fbRank(mine.score).then(rk => {
+      if (seq !== boxSeq) return;
+      if (rk) paint(rk);
+      else { $myRank.querySelectorAll('.of').forEach(d => d.textContent = '인터넷 연결을 확인해 주세요'); }
+    }).catch(() => {});
+    else if (fbOn() && readJ(OWANT_KEY, wantMem)) fbSubmit(0, 0).then(ok => { if (ok && seq === boxSeq) showRankTab('me'); }).catch(() => {});
+  }
+}
 function openRankBox(e){
   if (e) e.stopPropagation();
-  renderRanks(document.getElementById('introRanks'));
+  showRankTab('all');
   $rankAsk.hidden = true; document.getElementById('rankClear').hidden = false;
   $rankBox.hidden = false;
   document.getElementById('rankClose').focus();
 }
+document.getElementById('tabAll').addEventListener('click', () => showRankTab('all'));
+document.getElementById('tabMe').addEventListener('click', () => showRankTab('me'));
 document.getElementById('introRank').addEventListener('click', openRankBox);
 document.getElementById('rankClose').addEventListener('click', () => { $rankBox.hidden = true; });
 document.getElementById('rankClear').addEventListener('click', () => {
@@ -1251,7 +1428,7 @@ document.getElementById('rankAskNo').addEventListener('click', () => {
 });
 document.getElementById('rankAskYes').addEventListener('click', () => {
   saveRanks([]);
-  renderRanks(document.getElementById('introRanks'));
+  showRankTab(rankTab);
   $rankAsk.hidden = true; document.getElementById('rankClear').hidden = false;
 });
 $rankBox.addEventListener('click', e => { if (e.target === $rankBox) $rankBox.hidden = true; });
